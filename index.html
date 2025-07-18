@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>クイズ早押し</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      padding: 30px;
+      background-color: #f2f2f2;
+    }
+    textarea {
+      width: 80%;
+      height: 200px;
+      font-size: 16px;
+      margin-bottom: 20px;
+    }
+    button {
+      font-size: 20px;
+      margin: 10px;
+      padding: 10px 20px;
+      cursor: pointer;
+    }
+    #status {
+      font-size: 18px;
+      margin: 10px 0;
+    }
+    #question {
+      font-size: 24px;
+      margin: 20px auto;
+      padding: 10px;
+      width: 60%;
+      height: 100px;
+      border: 2px solid #333;
+      text-align: left;
+      white-space: pre-wrap;
+      overflow: auto;
+      background-color: #ffffff;
+    }
+    #answer {
+      font-size: 24px;
+      margin: 20px auto;
+      padding: 10px;
+      width: 60%;
+      border: 2px solid #888;
+      background-color: #fff7e6;
+      text-align: left;
+    }
+    .score-buttons {
+      display: inline-flex;
+      gap: 10px;
+      vertical-align: middle;
+    }
+    .score-btn {
+      width: 50px;
+      height: 50px;
+      font-size: 20px;
+      border: 2px solid #444;
+      border-radius: 6px;
+      background-color: #fff;
+    }
+    #savedList {
+      margin-top: 40px;
+      text-align: left;
+      padding: 10px;
+      width: 80%;
+      margin-left: auto;
+      margin-right: auto;
+      background: #fff;
+      border: 2px dashed #aaa;
+    }
+    .saved-item {
+      border-bottom: 1px solid #ccc;
+      padding: 25px 0;
+    }
+    .saved-item strong {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>tab,カンマ,スペース区切りの問題と答えをコピー</h2>
+  <textarea id="csvInput" placeholder="問題,答え&#10;問題2,答え2"></textarea><br>
+  <button id="loadBtn">読み込む</button>
+  <div class="score-buttons">
+  <div style="display: flex; align-items: center; gap: 5px;">
+    <button id="correctBtn" class="score-btn">0</button>
+    <span style="font-size: 20px;">〇</span>
+  </div>
+  <div style="display: flex; align-items: center; gap: 5px;">
+    <button id="wrongBtn" class="score-btn">0</button>
+    <span style="font-size: 20px;">×</span>
+  </div>
+</div><br>
+  <button id="quizBtn" disabled>開始</button>
+  <button id="saveBtn">気になる</button>
+  <label style="margin-left: 10px;"><input type="checkbox" id="autoSaveWrong"> 誤答を自動で保存</label>
+  <br>
+  <label for="speedSlider">表示速度:</label>
+  <input type="range" id="speedSlider" min="50" max="300" value="100">
+  <span id="speedValue">100</span>ms
+
+  <div id="status"></div>
+  <div id="question"></div>
+  <div style="display: flex; justify-content: center; align-items: center; gap: 10px; width: 60%; margin: 0 auto;">
+  <div id="answer" style="flex: 1;"></div>
+  <button id="searchBtn" title="Google検索">🔍</button>
+</div>
+
+  <div id="savedList">
+    <h3>気になった問題</h3>
+  </div>
+
+  <script>
+    const csvInput = document.getElementById("csvInput");
+    const loadBtn = document.getElementById("loadBtn");
+    const quizBtn = document.getElementById("quizBtn");
+    const saveBtn = document.getElementById("saveBtn");
+    const questionDiv = document.getElementById("question");
+    const answerDiv = document.getElementById("answer");
+    const statusDiv = document.getElementById("status");
+    const correctBtn = document.getElementById("correctBtn");
+    const wrongBtn = document.getElementById("wrongBtn");
+    const savedList = document.getElementById("savedList");
+    const autoSaveWrong = document.getElementById("autoSaveWrong");
+    const speedSlider = document.getElementById("speedSlider");
+    const speedValue = document.getElementById("speedValue");
+
+    let questions = [];
+    let currentIndex = 0;
+    let intervalId = null;
+    let charIndex = 0;
+    let state = "ready";
+    let displaySpeed = parseInt(speedSlider.value, 10);
+
+    speedSlider.addEventListener("input", () => {
+      displaySpeed = parseInt(speedSlider.value, 10);
+      speedValue.textContent = displaySpeed;
+    });
+
+    loadBtn.onclick = () => {
+      const lines = csvInput.value.trim().split("\n");
+      questions = lines
+        .map(line => line.split(/[\t, ]+/))
+        .filter(parts => parts.length === 2)
+        .map(([q, a]) => ({ q: q.trim(), a: a.trim() }));
+
+      questions = questions.sort(() => Math.random() - 0.5);
+
+      if (questions.length > 0) {
+        quizBtn.disabled = false;
+        currentIndex = 0;
+        state = "ready";
+        questionDiv.textContent = "読み込み完了！ボタンで開始";
+        answerDiv.textContent = "";
+        statusDiv.textContent = `${questions.length}問読み込みました`;
+        correctBtn.textContent = "0";
+        wrongBtn.textContent = "0";
+      } else {
+        questionDiv.textContent = "読み込み失敗：有効な問題がありません";
+        answerDiv.textContent = "";
+        statusDiv.textContent = "";
+      }
+    };
+
+    quizBtn.onclick = () => {
+      if (state === "ready") {
+        if (currentIndex >= questions.length) {
+          questionDiv.textContent = "クイズ終了！";
+          answerDiv.textContent = "";
+          quizBtn.disabled = true;
+          return;
+        }
+
+        const questionText = questions[currentIndex].q;
+        questionDiv.textContent = "";
+        answerDiv.textContent = "";
+        charIndex = 0;
+
+        intervalId = setInterval(() => {
+          if (charIndex < questionText.length) {
+            questionDiv.textContent += questionText[charIndex++];
+          } else {
+            clearInterval(intervalId);
+            state = "stopped";
+          }
+        }, displaySpeed);
+        state = "showing";
+
+      } else if (state === "showing") {
+        clearInterval(intervalId);
+        state = "stopped";
+
+      } else if (state === "stopped") {
+        questionDiv.textContent = questions[currentIndex].q;
+        answerDiv.textContent = questions[currentIndex].a;
+        state = "showingAnswer";
+
+      } else if (state === "showingAnswer") {
+        currentIndex++;
+        state = "ready";
+
+        if (currentIndex < questions.length) {
+          const questionText = questions[currentIndex].q;
+          questionDiv.textContent = "";
+          answerDiv.textContent = "";
+          charIndex = 0;
+          intervalId = setInterval(() => {
+            if (charIndex < questionText.length) {
+              questionDiv.textContent += questionText[charIndex++];
+            } else {
+              clearInterval(intervalId);
+              state = "stopped";
+            }
+          }, displaySpeed);
+          state = "showing";
+        } else {
+          questionDiv.textContent = "クイズ終了！";
+          answerDiv.textContent = "";
+          quizBtn.disabled = true;
+        }
+      }
+    };
+
+    correctBtn.onclick = () => {
+  let count = parseInt(correctBtn.textContent, 10);
+  correctBtn.textContent = count + 1;
+  correctBtn.style.backgroundColor = "#a3d5ff";
+  setTimeout(() => {
+    correctBtn.style.backgroundColor = "#fff";
+  }, 300);
+};
+
+    wrongBtn.onclick = () => {
+  let count = parseInt(wrongBtn.textContent, 10);
+  wrongBtn.textContent = count + 1;
+  wrongBtn.style.backgroundColor = "#ffaaaa";
+  setTimeout(() => {
+    wrongBtn.style.backgroundColor = "#fff";
+  }, 300);
+
+  // 誤答時に自動で保存
+  if (autoSaveWrong.checked && currentIndex < questions.length) {
+    const question = questions[currentIndex].q;
+    const answer = questions[currentIndex].a;
+
+    const alreadySaved = Array.from(savedList.querySelectorAll(".saved-item")).some(item =>
+      item.textContent.includes(question) && item.textContent.includes(answer)
+    );
+
+    if (alreadySaved) return;
+
+    const item = document.createElement("div");
+    item.className = "saved-item";
+    item.innerHTML = `<strong>問題：</strong>${question}<br><strong>答え：</strong>${answer}`;
+    savedList.insertBefore(item, savedList.children[1]);
+  }
+};
+
+    saveBtn.onclick = () => {
+  if (currentIndex >= questions.length) return;
+  const question = questions[currentIndex].q;
+  const answer = questions[currentIndex].a;
+
+  // すでに保存されているか確認
+  const alreadySaved = Array.from(savedList.querySelectorAll(".saved-item")).some(item =>
+    item.textContent.includes(question) && item.textContent.includes(answer)
+  );
+
+  if (alreadySaved) return; // すでに保存されていれば何もしない
+
+  const item = document.createElement("div");
+  item.className = "saved-item";
+  item.innerHTML = `<strong>問題：</strong>${question}<br><strong>答え：</strong>${answer}`;
+  savedList.insertBefore(item, savedList.children[1]);
+};
+
+    document.addEventListener("keydown", (e) => {
+  if (e.key === "t") {
+    if (currentIndex < questions.length) {
+      const answer = questions[currentIndex].a;
+      const url = `https://www.google.com/search?q=${encodeURIComponent(answer)}`;
+      window.open(url, '_blank');
+    }
+  }
+  if (e.code === "Space") {
+    e.preventDefault();
+    if (!quizBtn.disabled) quizBtn.click();
+  } else if (e.key === "w") {
+    correctBtn.click();
+  } else if (e.key === "e") {
+    wrongBtn.click();
+  } else if (e.key === "r") {
+    saveBtn.click();
+  }
+});
+    const searchBtn = document.getElementById("searchBtn");
+  searchBtn.onclick = () => {
+    if (currentIndex < questions.length) {
+      const answer = questions[currentIndex].a;
+      const url = `https://www.google.com/search?q=${encodeURIComponent(answer)}`;
+      window.open(url, '_blank');
+    }
+  };
+</script>
+<button id="helpBtn" style="position: fixed; top: 10px; right: 10px; font-size: 14px;">操作説明</button>
+<div id="helpPopup" style="display: none; position: fixed; top: 60px; right: 10px; background: white; border: 1px solid #888; padding: 15px; width: 300px; z-index: 1000; text-align: left; font-size: 14px;">
+  <strong>操作方法</strong><br>
+  ・スペースキー：問題の表示操作<br>
+  ・Wキー：正解カウント<br>
+  ・Eキー：誤答カウント<br>
+  ・Rキー：気になるに追加<br>
+  ・Tキー：答えをGoogle検索<br>
+  <br><button id="closeHelp">閉じる</button>
+</div>
+<script>
+document.getElementById("helpBtn").onclick = () => {
+  document.getElementById("helpPopup").style.display = "block";
+};
+document.getElementById("closeHelp").onclick = () => {
+  document.getElementById("helpPopup").style.display = "none";
+};
+</script>
+</body>
+</html>
